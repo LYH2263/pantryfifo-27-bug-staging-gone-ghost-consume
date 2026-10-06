@@ -1,6 +1,6 @@
 <template>
   <div>
-    <h1>设置 · 待落后投影</h1>
+    <h1>设置</h1>
     <pre>{{ s }}</pre>
   </div>
 </template>

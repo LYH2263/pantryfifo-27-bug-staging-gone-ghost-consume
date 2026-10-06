@@ -1,6 +1,6 @@
 <template>
   <div>
-    <h1>分批入库 · 待落后投影</h1>
+    <h1>分批入库</h1>
     <p class="muted">入库先落暂存区,确认落层后才上架出现在全层与对应层页。</p>
     <select v-model.number="item_id"><option v-for="i in items" :value="i.id">{{ i.name }}</option></select>
     <input type="number" v-model.number="qty" placeholder="数量" />

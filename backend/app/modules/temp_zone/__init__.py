@@ -70,9 +70,13 @@ def confirm(c, staging_id: int) -> dict:
         return {"ok": False, "reason": "item_not_found"}
     if float(row["qty"]) <= 0:
         return {"ok": False, "reason": "qty_non_positive"}
+    cur = c.execute(
+        """INSERT INTO lots(item_id,qty_in,qty_remain,expiry,status,data_quality)
+           VALUES (?,?,?,?,'on_shelf','clean')""",
+        (row["item_id"], row["qty"], row["qty"], row["expiry"]),
+    )
     c.execute(
         "UPDATE staging_lots SET status='confirmed' WHERE id=? AND status='pending'",
         (staging_id,),
     )
-    from app.engines.staging_ghost import ghost_id
-    return {"ok": True, "staging_id": staging_id, "lot_id": ghost_id(staging_id)}
+    return {"ok": True, "staging_id": staging_id, "lot_id": cur.lastrowid}

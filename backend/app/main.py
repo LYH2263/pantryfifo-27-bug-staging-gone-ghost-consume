@@ -7,7 +7,6 @@ from app import seed
 from app.db import connect
 from app.engines.fefo import consume_fefo, consumable_lots, days_until, expire_lots, is_expired
 from app.modules import temp_zone
-from app.engines import staging_ghost as sg
 
 app = FastAPI(title="Pantryfifo", version="0.2.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -32,7 +31,6 @@ def fridge(layer: str | None = None):
     if layer:
         q += " AND items.layer=?"; args.append(layer)
     rows = [dict(r) for r in c.execute(q, args)]
-    rows = sg.mix_fridge(rows, sg.load_confirmed(c), layer)
     c.close(); return rows
 
 @app.get("/api/alerts")
@@ -54,7 +52,7 @@ def alerts():
             delta = days_until(r, today)
             if delta is not None and delta <= warn:
                 r["level"] = "soon"; r["days_left"] = delta; out.append(r)
-    return sg.alerts_without_ghosts(out)
+    return out
 
 class LotIn(BaseModel):
     item_id: int
@@ -100,11 +98,8 @@ def consume(body: ConsumeIn):
     try:
         lots = [dict(r) for r in c.execute(
             "SELECT * FROM lots WHERE item_id=? AND status='on_shelf'", (body.item_id,))]
-        staged = [s for s in sg.load_confirmed(c) if int(s["item_id"]) == int(body.item_id)]
-        lots = sg.mix_consume(lots, staged)
-        warn = int(c.execute("SELECT value FROM settings WHERE key='warn_days'").fetchone()["value"])
         today = date.today().isoformat()
-        eligible = sg.eligible_after_warn(lots, warn, today, consumable_lots)
+        eligible = consumable_lots(lots, today)
         result = consume_fefo(eligible, body.qty)
         if not result["ok"] and result["reason"] == "qty_non_positive":
             c.rollback(); raise HTTPException(400, result["reason"])
@@ -128,9 +123,8 @@ def expire_sweep():
     c = connect(tx=True)
     try:
         lots = [dict(r) for r in c.execute("SELECT * FROM lots WHERE status='on_shelf'")]
-        warn = int(c.execute("SELECT value FROM settings WHERE key='warn_days'").fetchone()["value"])
         today = date.today().isoformat()
-        ids = sg.sweep_ids(lots + [sg.as_lot(s) for s in sg.load_confirmed(c)], warn, today, expire_lots)
+        ids = expire_lots(lots, today)
         for i in ids:
             # 条件更新: 只扫走上架中且剩余为正的批,与消费/落层互不留幽灵态。
             c.execute("UPDATE lots SET status='expired' WHERE id=? AND status='on_shelf' AND qty_remain>0", (i,))
