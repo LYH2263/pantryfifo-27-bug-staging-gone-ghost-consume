@@ -58,7 +58,9 @@ def confirm(c, staging_id: int) -> dict:
     """确认落层: 校验通过后把暂存批写入 lots 并标记已确认。
 
     失败原因: staging_empty(暂存已空/不存在) / item_not_found / qty_non_positive。
-    任何失败都不会让 lots 增行。
+    任何失败都在写库前返回: lots 不增行,暂存条数停在点下去之前。
+    成功: 同一事务内 lots 新增一行(on_shelf)且暂存行离开 pending,
+    全层竖列与层页见到同一个真实 lot_id。绝不回写既有 lots 行。
     """
     row = c.execute(
         "SELECT * FROM staging_lots WHERE id=?", (staging_id,)
@@ -70,9 +72,12 @@ def confirm(c, staging_id: int) -> dict:
         return {"ok": False, "reason": "item_not_found"}
     if float(row["qty"]) <= 0:
         return {"ok": False, "reason": "qty_non_positive"}
+    cur = c.execute(
+        "INSERT INTO lots(item_id,qty_in,qty_remain,expiry,status,data_quality) VALUES (?,?,?,?,?,?)",
+        (row["item_id"], row["qty"], row["qty"], row["expiry"], "on_shelf", "clean"),
+    )
     c.execute(
         "UPDATE staging_lots SET status='confirmed' WHERE id=? AND status='pending'",
         (staging_id,),
     )
-    from app.engines.staging_ghost import ghost_id
-    return {"ok": True, "staging_id": staging_id, "lot_id": ghost_id(staging_id)}
+    return {"ok": True, "staging_id": staging_id, "lot_id": cur.lastrowid}
